@@ -1,69 +1,45 @@
-const mongoose = require('mongoose');
+const { getSQL } = require('../config/db');
 
-const ContractAnalysisSchema = new mongoose.Schema({
-  address: {
-    type: String,
-    required: true,
-    lowercase: true,
-    trim: true,
-    index: true
-  },
-  chain: {
-    type: String,
-    default: 'avalanche',
-    enum: ['avalanche']
-  },
-  language: {
-    type: String,
-    default: 'en',
-    enum: ['en', 'es']
-  },
-  score: {
-    type: Number,
-    required: true,
-    min: 0,
-    max: 100
-  },
-  level: {
-    type: String,
-    required: true,
-    enum: ['Low', 'Medium', 'High']
-  },
-  warnings: [{
-    type: String
-  }],
-  explanation: {
-    type: String,
-    default: null
-  },
-  signals: {
-    contract_verified: { type: Boolean, default: false },
-    has_mint_function: { type: Boolean, default: false },
-    has_blacklist_function: { type: Boolean, default: false },
-    has_pause_function: { type: Boolean, default: false },
-    ownership_renounced: { type: Boolean, default: false },
-    has_transfer_restrictions: { type: Boolean, default: false },
-    holder_concentration_top1: { type: Number, default: 0 },
-    holder_concentration_top10: { type: Number, default: 0 },
-    liquidity_pool_age_days: { type: Number, default: null },
-    liquidity_amount_usd: { type: Number, default: null },
-    is_proxy: { type: Boolean, default: false }
-  },
-  report_ipfs_url: {
-    type: String,
-    default: null
-  }
-}, {
-  timestamps: true
-});
+const CACHE_TTL_HOURS = 1;
 
-ContractAnalysisSchema.index({ address: 1, language: 1 }, { unique: true });
-ContractAnalysisSchema.index({ createdAt: 1 }, { expireAfterSeconds: 3600 });
+async function findCached(address, language) {
+  const sql = getSQL();
+  if (!sql) return null;
+  const rows = await sql`
+    SELECT * FROM contract_analyses
+    WHERE address = ${address}
+      AND language = ${language}
+      AND created_at > NOW() - INTERVAL '${CACHE_TTL_HOURS} hours'
+    LIMIT 1
+  `;
+  return rows[0] ?? null;
+}
 
-ContractAnalysisSchema.methods.toJSON = function() {
-  const obj = this.toObject();
-  delete obj.__v;
-  return obj;
-};
+async function saveCache(data) {
+  const sql = getSQL();
+  if (!sql) return;
+  const {
+    address, chain = 'avalanche', language = 'en',
+    score, level, warnings = [], explanation = null,
+    signals = {}, report_ipfs_url = null,
+  } = data;
 
-module.exports = mongoose.model('ContractAnalysis', ContractAnalysisSchema);
+  await sql`
+    INSERT INTO contract_analyses
+      (address, chain, language, score, level, warnings, explanation, signals, report_ipfs_url)
+    VALUES
+      (${address}, ${chain}, ${language}, ${score}, ${level},
+       ${warnings}, ${explanation}, ${JSON.stringify(signals)}, ${report_ipfs_url})
+    ON CONFLICT (address, language)
+    DO UPDATE SET
+      score           = EXCLUDED.score,
+      level           = EXCLUDED.level,
+      warnings        = EXCLUDED.warnings,
+      explanation     = EXCLUDED.explanation,
+      signals         = EXCLUDED.signals,
+      report_ipfs_url = EXCLUDED.report_ipfs_url,
+      created_at      = NOW()
+  `;
+}
+
+module.exports = { findCached, saveCache };

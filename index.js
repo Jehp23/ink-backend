@@ -3,7 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const connectDB = require('./src/config/db');
+const { connectDB } = require('./src/config/db');
 const analyzerRoutes = require('./src/routes/analyzerRoutes');
 
 const app = express();
@@ -38,12 +38,8 @@ app.use('/analyze', rateLimit({
 
 app.use(express.json());
 
-// MongoDB is optional — skip if MONGO_URI not set
-if (process.env.MONGO_URI) {
-  connectDB();
-} else {
-  console.warn('⚠️  MONGO_URI not set — running without cache (demo mode)');
-}
+// Neon DB — optional, cache disabled if DATABASE_URL not set
+connectDB().catch(err => console.warn('⚠️  DB connect failed:', err.message));
 
 app.use('/', analyzerRoutes);
 

@@ -1,4 +1,4 @@
-const ContractAnalysis = require('../models/ContractAnalysis');
+const { findCached, saveCache } = require('../models/ContractAnalysis');
 const { analyzeContract, isValidEvmAddress } = require('../services/avalancheService');
 const { computeScore, extractSignals } = require('../services/scoringEngine');
 const { getAiPrediction } = require('../services/aiService');
@@ -19,24 +19,22 @@ const analyzeContractHandler = async (req, res) => {
 
     const normalizedAddress = address.toLowerCase();
 
-    // Cache lookup keyed by address+language (only if MongoDB is connected)
-    if (process.env.MONGO_URI) {
-      try {
-        const cachedAnalysis = await ContractAnalysis.findOne({ address: normalizedAddress, language });
-        if (cachedAnalysis) {
-          return res.status(200).json({
-            address: cachedAnalysis.address,
-            score: cachedAnalysis.score,
-            level: cachedAnalysis.level,
-            warnings: cachedAnalysis.warnings,
-            explanation: cachedAnalysis.explanation,
-            signals: cachedAnalysis.signals,
-            cid: cachedAnalysis.cid || null,
-            report_ipfs_url: cachedAnalysis.report_ipfs_url || null,
-          });
-        }
-      } catch (_) {}
-    }
+    // Cache lookup keyed by address+language (TTL 1h via Neon)
+    try {
+      const cached = await findCached(normalizedAddress, language);
+      if (cached) {
+        return res.status(200).json({
+          address: cached.address,
+          score: cached.score,
+          level: cached.level,
+          warnings: cached.warnings,
+          explanation: cached.explanation,
+          signals: cached.signals,
+          cid: null,
+          report_ipfs_url: cached.report_ipfs_url || null,
+        });
+      }
+    } catch (_) {}
 
     const avalancheData = await analyzeContract(normalizedAddress);
 
@@ -89,12 +87,8 @@ const analyzeContractHandler = async (req, res) => {
       projectId:       projectId,
     };
 
-    // Save to cache (only if MongoDB is connected)
-    if (process.env.MONGO_URI) {
-      try {
-        await new ContractAnalysis(analysisResult).save();
-      } catch (_) {}
-    }
+    // Save to Neon cache
+    try { await saveCache(analysisResult); } catch (_) {}
 
     return res.status(200).json(analysisResult);
 
