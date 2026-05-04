@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { analyzeContract, getAnalysisByProjectId, getReportFromIpfs } = require('../controllers/analyzerController');
-const ContractAnalysis = require('../models/ContractAnalysis');
+const { countDistinctAddresses } = require("./../models/ContractAnalysis");
 
 // POST /analyze
 router.post('/analyze', analyzeContract);
@@ -9,8 +9,8 @@ router.post('/analyze', analyzeContract);
 // GET /stats — unique contracts analyzed
 router.get('/stats', async (req, res) => {
   try {
-    const addresses = await ContractAnalysis.distinct('address');
-    res.json({ total: addresses.length });
+    const total = await countDistinctAddresses();
+    res.json({ total });
   } catch {
     res.json({ total: 0 });
   }

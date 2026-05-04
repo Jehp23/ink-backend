@@ -42,4 +42,11 @@ async function saveCache(data) {
   `;
 }
 
-module.exports = { findCached, saveCache };
+async function countDistinctAddresses() {
+  const sql = getSQL();
+  if (!sql) return 0;
+  const rows = await sql`SELECT COUNT(DISTINCT address) AS total FROM contract_analyses`;
+  return parseInt(rows[0]?.total ?? 0);
+}
+
+module.exports = { findCached, saveCache, countDistinctAddresses };
